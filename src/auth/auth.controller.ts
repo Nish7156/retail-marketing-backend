@@ -4,6 +4,8 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { CreateStoreOwnerDto } from './dto/create-store-owner.dto';
+import { SendOtpDto } from './dto/send-otp.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { JwtPayload } from './decorators/current-user.decorator';
@@ -13,9 +15,41 @@ import { Roles } from './decorators/roles.decorator';
 import { RolesGuard } from './guards/roles.guard';
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from './constants';
 
+function setAuthCookies(res: Response, cookieOptions: { access: { name: string; value: string; maxAge: number }; refresh: { name: string; value: string; maxAge: number } }) {
+  const isProd = process.env.NODE_ENV === 'production';
+  res.cookie(cookieOptions.access.name, cookieOptions.access.value, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    maxAge: cookieOptions.access.maxAge * 1000,
+    path: '/',
+  });
+  res.cookie(cookieOptions.refresh.name, cookieOptions.refresh.value, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    maxAge: cookieOptions.refresh.maxAge * 1000,
+    path: '/',
+  });
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Public()
+  @Post('send-otp')
+  async sendOtp(@Body() dto: SendOtpDto) {
+    return this.authService.sendOtp(dto);
+  }
+
+  @Public()
+  @Post('verify-otp')
+  async verifyOtp(@Body() dto: VerifyOtpDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.verifyOtp(dto);
+    setAuthCookies(res, result.cookieOptions);
+    return { user: result.user, accessToken: result.accessToken };
+  }
 
   @Public()
   @Post('register')
@@ -27,22 +61,7 @@ export class AuthController {
   @Post('login')
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(dto);
-    const { cookieOptions } = result;
-    const isProd = process.env.NODE_ENV === 'production';
-    res.cookie(cookieOptions.access.name, cookieOptions.access.value, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: 'lax',
-      maxAge: cookieOptions.access.maxAge * 1000,
-      path: '/',
-    });
-    res.cookie(cookieOptions.refresh.name, cookieOptions.refresh.value, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: 'lax',
-      maxAge: cookieOptions.refresh.maxAge * 1000,
-      path: '/',
-    });
+    setAuthCookies(res, result.cookieOptions);
     return { user: result.user, accessToken: result.accessToken };
   }
 
@@ -51,22 +70,7 @@ export class AuthController {
   @Post('refresh')
   async refresh(@CurrentUser() user: JwtPayload, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.refresh(user);
-    const { cookieOptions } = result;
-    const isProd = process.env.NODE_ENV === 'production';
-    res.cookie(cookieOptions.access.name, cookieOptions.access.value, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: 'lax',
-      maxAge: cookieOptions.access.maxAge * 1000,
-      path: '/',
-    });
-    res.cookie(cookieOptions.refresh.name, cookieOptions.refresh.value, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: 'lax',
-      maxAge: cookieOptions.refresh.maxAge * 1000,
-      path: '/',
-    });
+    setAuthCookies(res, result.cookieOptions);
     return { user: result.user, accessToken: result.accessToken };
   }
 

@@ -13,24 +13,58 @@ enum Role {
   USER
 }
 
-model Store {
+model Shop {
   id        String   @id @default(cuid())
   name      String
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   users     User[]
+  branches  Branch[]
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  name      String
+  location  String
+  shopId    String   @map("shop_id")
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  offers    Offer[]
+}
+
+model Offer {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  branchId    String   @map("branch_id")
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  startsAt    DateTime? @map("starts_at")
+  endsAt      DateTime? @map("ends_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  role         Role     @default(USER)
-  storeId      String?  @map("store_id")
-  store        Store?   @relation(fields: [storeId], references: [id], onDelete: SetNull)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id            String         @id @default(cuid())
+  phone         String         @unique
+  email         String?        @unique
+  passwordHash  String?        @map("password_hash")
+  role          Role           @default(USER)
+  shops         Shop[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
   refreshTokens RefreshToken[]
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([phone, code])
 }
 
 model RefreshToken {

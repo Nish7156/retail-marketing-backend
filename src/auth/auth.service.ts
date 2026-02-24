@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -6,9 +6,21 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { CreateStoreOwnerDto } from './dto/create-store-owner.dto';
+import { SendOtpDto } from './dto/send-otp.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Role } from '@prisma/client';
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from './constants';
 import { JwtPayload } from './decorators/current-user.decorator';
+
+const OTP_EXPIRY_MINUTES = 10;
+const OTP_LENGTH = 6;
+
+function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 10) return `+91${digits}`;
+  if (digits.length === 12 && digits.startsWith('91')) return `+${digits}`;
+  return phone.startsWith('+') ? phone : `+${phone}`;
+}
 
 @Injectable()
 export class AuthService {
@@ -18,9 +30,50 @@ export class AuthService {
     private configService: ConfigService,
   ) {}
 
-  async validateUser(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) return null;
+  async sendOtp(dto: SendOtpDto) {
+    const phone = normalizePhone(dto.phone);
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    await this.prisma.otpCode.deleteMany({ where: { phone } });
+    await this.prisma.otpCode.create({
+      data: { phone, code, expiresAt },
+    });
+    console.log(`[OTP] ${phone} => ${code} (expires ${expiresAt.toISOString()})`);
+    return { ok: true, message: 'OTP sent' };
+  }
+
+  async verifyOtp(dto: VerifyOtpDto) {
+    const phone = normalizePhone(dto.phone);
+    const otp = await this.prisma.otpCode.findFirst({
+      where: { phone, code: dto.code },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!otp) throw new UnauthorizedException('Invalid OTP');
+    if (otp.expiresAt < new Date()) {
+      await this.prisma.otpCode.delete({ where: { id: otp.id } });
+      throw new UnauthorizedException('OTP expired');
+    }
+    await this.prisma.otpCode.deleteMany({ where: { phone } });
+
+    let user = await this.prisma.user.findUnique({
+      where: { phone },
+      include: { shops: { select: { id: true } } },
+    });
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: { phone, role: Role.USER },
+        include: { shops: { select: { id: true } } },
+      });
+    }
+    const { passwordHash: _, shops, ...safeUser } = user;
+    const shopIds = shops.map((s) => s.id);
+    const tokens = await this.issueTokens({ ...safeUser, shopIds });
+    return { user: tokens.user, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, cookieOptions: tokens.cookieOptions };
+  }
+
+  async validateUserByEmail(email: string, password: string) {
+    const user = await this.prisma.user.findFirst({ where: { email } });
+    if (!user || !user.passwordHash) return null;
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) return null;
     const { passwordHash: _, ...result } = user;
@@ -28,16 +81,17 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const existing = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (existing) throw new ConflictException('Email already registered');
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const role = (dto.role ?? 'USER') as Role;
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
+        phone: `email-${dto.email}-${Date.now()}`,
         passwordHash,
         role,
-        storeId: dto.storeId ?? null,
+        ...(dto.shopId && { shops: { connect: { id: dto.shopId } } }),
       },
     });
     const { passwordHash: _, ...result } = user;
@@ -47,25 +101,32 @@ export class AuthService {
   async listStoreOwners() {
     return this.prisma.user.findMany({
       where: { role: Role.STORE_ADMIN },
-      select: { id: true, email: true, storeId: true, createdAt: true },
+      select: {
+        id: true,
+        phone: true,
+        email: true,
+        createdAt: true,
+        shops: { select: { id: true, name: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async createStoreOwner(dto: CreateStoreOwnerDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const existing = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (existing) throw new ConflictException('Email already registered');
-    if (dto.storeId) {
-      const store = await this.prisma.store.findUnique({ where: { id: dto.storeId } });
-      if (!store) throw new ConflictException('Store not found');
+    if (dto.shopId) {
+      const shop = await this.prisma.shop.findUnique({ where: { id: dto.shopId } });
+      if (!shop) throw new BadRequestException('Shop not found');
     }
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
+        phone: `email-${dto.email}-${Date.now()}`,
         passwordHash,
         role: Role.STORE_ADMIN,
-        storeId: dto.storeId ?? null,
+        ...(dto.shopId && { shops: { connect: { id: dto.shopId } } }),
       },
     });
     const { passwordHash: _, ...result } = user;
@@ -73,26 +134,42 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.validateUser(dto.email, dto.password);
+    const user = await this.validateUserByEmail(dto.email, dto.password);
     if (!user) throw new UnauthorizedException('Invalid email or password');
-    const tokens = await this.issueTokens(user);
+    const withShops = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      include: { shops: { select: { id: true } } },
+    });
+    const shopIds = withShops?.shops.map((s) => s.id) ?? [];
+    const tokens = await this.issueTokens({ ...user, shopIds });
     return { user: tokens.user, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, cookieOptions: tokens.cookieOptions };
   }
 
   async refresh(user: JwtPayload) {
-    const dbUser = await this.prisma.user.findUnique({ where: { id: user.sub } });
+    const dbUser = await this.prisma.user.findUnique({
+      where: { id: user.sub },
+      include: { shops: { select: { id: true } } },
+    });
     if (!dbUser) throw new UnauthorizedException();
-    const { passwordHash: _, ...safeUser } = dbUser;
-    return this.issueTokens(safeUser);
+    const { passwordHash: _, shops, ...safeUser } = dbUser;
+    return this.issueTokens({ ...safeUser, shopIds: shops.map((s) => s.id) });
   }
 
   async getMe(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, role: true, storeId: true, createdAt: true },
+      select: {
+        id: true,
+        phone: true,
+        email: true,
+        role: true,
+        createdAt: true,
+        shops: { select: { id: true } },
+      },
     });
     if (!user) throw new UnauthorizedException();
-    return user;
+    const { shops, ...rest } = user;
+    return { ...rest, shopIds: shops.map((s) => s.id) };
   }
 
   async logout(userId: string) {
@@ -112,12 +189,13 @@ export class AuthService {
     return true;
   }
 
-  private async issueTokens(user: { id: string; email: string; role: string; storeId?: string | null }) {
+  private async issueTokens(user: { id: string; phone: string; email?: string | null; role: string; shopIds?: string[] }) {
     const payload: JwtPayload = {
       sub: user.id,
-      email: user.email,
+      phone: user.phone,
+      email: user.email ?? undefined,
       role: user.role,
-      storeId: user.storeId ?? undefined,
+      shopIds: user.shopIds ?? [],
     };
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
@@ -143,7 +221,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: { id: user.id, email: user.email, role: user.role, storeId: user.storeId },
+      user: { id: user.id, phone: user.phone, email: user.email ?? undefined, role: user.role, shopIds: user.shopIds ?? [] },
       cookieOptions: {
         access: {
           name: ACCESS_TOKEN_COOKIE,

@@ -23,7 +23,7 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh'
     });
   }
 
-  async validate(req: Request, payload: { sub: string; email: string; role: string; storeId?: string }): Promise<JwtPayload> {
+  async validate(req: Request, payload: { sub: string; phone: string; email?: string; role: string; shopIds?: string[] }): Promise<JwtPayload> {
     const refreshToken = req?.cookies?.[REFRESH_TOKEN_COOKIE];
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token missing');
@@ -34,9 +34,10 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh'
     }
     return {
       sub: payload.sub,
+      phone: payload.phone,
       email: payload.email,
       role: payload.role,
-      storeId: payload.storeId,
+      shopIds: payload.shopIds ?? [],
     };
   }
 }

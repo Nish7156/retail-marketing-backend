@@ -5,7 +5,9 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
-import { StoresModule } from './stores/stores.module';
+import { ShopsModule } from './shops/shops.module';
+import { BranchesModule } from './branches/branches.module';
+import { OffersModule } from './offers/offers.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 
@@ -14,7 +16,9 @@ import { RolesGuard } from './auth/guards/roles.guard';
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     AuthModule,
-    StoresModule,
+    ShopsModule,
+    BranchesModule,
+    OffersModule,
   ],
   controllers: [AppController],
   providers: [
