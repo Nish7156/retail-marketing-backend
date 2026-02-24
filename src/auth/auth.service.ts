@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { CreateStoreOwnerDto } from './dto/create-store-owner.dto';
+import { CreateBranchStaffDto } from './dto/create-branch-staff.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Role } from '@prisma/client';
@@ -39,7 +40,7 @@ export class AuthService {
       data: { phone, code, expiresAt },
     });
     console.log(`[OTP] ${phone} => ${code} (expires ${expiresAt.toISOString()})`);
-    return { ok: true, message: 'OTP sent' };
+    return { ok: true, message: 'OTP sent', otp: code };
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
@@ -57,17 +58,18 @@ export class AuthService {
 
     let user = await this.prisma.user.findUnique({
       where: { phone },
-      include: { shops: { select: { id: true } } },
+      include: { shops: { select: { id: true } }, branch: { select: { id: true } } },
     });
     if (!user) {
       user = await this.prisma.user.create({
         data: { phone, role: Role.USER },
-        include: { shops: { select: { id: true } } },
+        include: { shops: { select: { id: true } }, branch: { select: { id: true } } },
       });
     }
-    const { passwordHash: _, shops, ...safeUser } = user;
+    const { passwordHash: _, shops, branch, ...safeUser } = user;
     const shopIds = shops.map((s) => s.id);
-    const tokens = await this.issueTokens({ ...safeUser, shopIds });
+    const branchId = branch?.id;
+    const tokens = await this.issueTokens({ ...safeUser, shopIds, branchId });
     return { user: tokens.user, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, cookieOptions: tokens.cookieOptions };
   }
 
@@ -133,26 +135,76 @@ export class AuthService {
     return result;
   }
 
+  async createBranchStaff(dto: CreateBranchStaffDto, currentUser: { role: string; shopIds?: string[] }) {
+    if (currentUser.role !== 'SUPERADMIN' && currentUser.role !== 'STORE_ADMIN') {
+      throw new UnauthorizedException('Only super admin or store admin can create branch staff');
+    }
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: dto.branchId },
+      include: { shop: { select: { id: true } } },
+    });
+    if (!branch) throw new BadRequestException('Branch not found');
+    if (currentUser.role === 'STORE_ADMIN' && !currentUser.shopIds?.includes(branch.shop.id)) {
+      throw new UnauthorizedException('You can only add staff to branches of your shop(s)');
+    }
+    const existing = await this.prisma.user.findFirst({ where: { email: dto.email } });
+    if (existing) throw new ConflictException('Email already registered');
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        phone: `email-${dto.email}-${Date.now()}`,
+        passwordHash,
+        role: Role.BRANCH_STAFF,
+        branchId: dto.branchId,
+      },
+    });
+    const { passwordHash: _, ...result } = user;
+    return result;
+  }
+
+  async listBranchStaff(currentUser: { role: string; shopIds?: string[] }) {
+    const where: { role: Role; branch?: { shopId: { in: string[] } } } = { role: Role.BRANCH_STAFF };
+    if (currentUser.role === 'STORE_ADMIN' && currentUser.shopIds?.length) {
+      where.branch = { shopId: { in: currentUser.shopIds } };
+    }
+    return this.prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        email: true,
+        createdAt: true,
+        branch: { select: { id: true, name: true, location: true, shop: { select: { name: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async login(dto: LoginDto) {
     const user = await this.validateUserByEmail(dto.email, dto.password);
     if (!user) throw new UnauthorizedException('Invalid email or password');
-    const withShops = await this.prisma.user.findUnique({
+    const withRelations = await this.prisma.user.findUnique({
       where: { id: user.id },
-      include: { shops: { select: { id: true } } },
+      include: { shops: { select: { id: true } }, branch: { select: { id: true } } },
     });
-    const shopIds = withShops?.shops.map((s) => s.id) ?? [];
-    const tokens = await this.issueTokens({ ...user, shopIds });
+    const shopIds = withRelations?.shops.map((s) => s.id) ?? [];
+    const branchId = withRelations?.branch?.id;
+    const tokens = await this.issueTokens({ ...user, shopIds, branchId });
     return { user: tokens.user, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, cookieOptions: tokens.cookieOptions };
   }
 
   async refresh(user: JwtPayload) {
     const dbUser = await this.prisma.user.findUnique({
       where: { id: user.sub },
-      include: { shops: { select: { id: true } } },
+      include: { shops: { select: { id: true } }, branch: { select: { id: true } } },
     });
     if (!dbUser) throw new UnauthorizedException();
-    const { passwordHash: _, shops, ...safeUser } = dbUser;
-    return this.issueTokens({ ...safeUser, shopIds: shops.map((s) => s.id) });
+    const { passwordHash: _, shops, branch, ...safeUser } = dbUser;
+    return this.issueTokens({
+      ...safeUser,
+      shopIds: shops.map((s) => s.id),
+      branchId: branch?.id,
+    });
   }
 
   async getMe(userId: string) {
@@ -163,13 +215,19 @@ export class AuthService {
         phone: true,
         email: true,
         role: true,
+        branchId: true,
         createdAt: true,
         shops: { select: { id: true } },
+        branch: { select: { id: true, name: true, location: true } },
       },
     });
     if (!user) throw new UnauthorizedException();
-    const { shops, ...rest } = user;
-    return { ...rest, shopIds: shops.map((s) => s.id) };
+    const { shops, branch, ...rest } = user;
+    return {
+      ...rest,
+      shopIds: shops.map((s) => s.id),
+      branch: branch ? { id: branch.id, name: branch.name, location: branch.location } : undefined,
+    };
   }
 
   async logout(userId: string) {
@@ -189,13 +247,14 @@ export class AuthService {
     return true;
   }
 
-  private async issueTokens(user: { id: string; phone: string; email?: string | null; role: string; shopIds?: string[] }) {
+  private async issueTokens(user: { id: string; phone: string; email?: string | null; role: string; shopIds?: string[]; branchId?: string }) {
     const payload: JwtPayload = {
       sub: user.id,
       phone: user.phone,
       email: user.email ?? undefined,
       role: user.role,
       shopIds: user.shopIds ?? [],
+      branchId: user.branchId,
     };
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
@@ -221,7 +280,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: { id: user.id, phone: user.phone, email: user.email ?? undefined, role: user.role, shopIds: user.shopIds ?? [] },
+      user: { id: user.id, phone: user.phone, email: user.email ?? undefined, role: user.role, shopIds: user.shopIds ?? [], branchId: user.branchId },
       cookieOptions: {
         access: {
           name: ACCESS_TOKEN_COOKIE,

@@ -16,7 +16,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  async validate(payload: { sub: string; phone: string; email?: string; role: string; shopIds?: string[] }): Promise<JwtPayload> {
+  async validate(payload: { sub: string; phone: string; email?: string; role: string; shopIds?: string[]; branchId?: string }): Promise<JwtPayload> {
     if (!payload.sub || !payload.phone) {
       throw new UnauthorizedException();
     }
@@ -26,6 +26,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       email: payload.email,
       role: payload.role,
       shopIds: payload.shopIds ?? [],
+      branchId: payload.branchId,
     };
   }
 }

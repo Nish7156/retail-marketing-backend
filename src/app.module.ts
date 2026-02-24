@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { ShopsModule } from './shops/shops.module';
 import { BranchesModule } from './branches/branches.module';
 import { OffersModule } from './offers/offers.module';
+import { CustomersModule } from './customers/customers.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 
@@ -19,6 +20,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     ShopsModule,
     BranchesModule,
     OffersModule,
+    CustomersModule,
   ],
   controllers: [AppController],
   providers: [

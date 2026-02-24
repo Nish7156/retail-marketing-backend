@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { CreateStoreOwnerDto } from './dto/create-store-owner.dto';
+import { CreateBranchStaffDto } from './dto/create-branch-staff.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Public } from './decorators/public.decorator';
@@ -102,5 +103,19 @@ export class AuthController {
   @Post('store-owners')
   async createStoreOwner(@Body() dto: CreateStoreOwnerDto) {
     return this.authService.createStoreOwner(dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPERADMIN', 'STORE_ADMIN')
+  @Get('branch-staff')
+  async listBranchStaff(@CurrentUser() user: JwtPayload) {
+    return this.authService.listBranchStaff(user);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPERADMIN', 'STORE_ADMIN')
+  @Post('branch-staff')
+  async createBranchStaff(@Body() dto: CreateBranchStaffDto, @CurrentUser() user: JwtPayload) {
+    return this.authService.createBranchStaff(dto, user);
   }
 }

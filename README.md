@@ -31,6 +31,31 @@
 $ npm install
 ```
 
+## Database (PostgreSQL with Docker)
+
+The app uses PostgreSQL. Run it with Docker:
+
+1. **Start Docker Desktop** (required; the app cannot reach the DB until the Docker daemon is running).
+
+2. Copy env and start Postgres:
+   ```bash
+   cp .env.example .env
+   npm run docker:up
+   ```
+
+3. Apply migrations and seed (first time or after schema changes):
+   ```bash
+   npm run db:reset
+   ```
+   Or: `npx prisma migrate deploy` then `npm run prisma:seed`.
+
+4. Start the backend:
+   ```bash
+   npm run start:dev
+   ```
+
+Stop the database when done: `npm run docker:down`.
+
 ## Compile and run the project
 
 ```bash
