@@ -115,23 +115,40 @@ export class AuthService {
   }
 
   async createStoreOwner(dto: CreateStoreOwnerDto) {
-    const existing = await this.prisma.user.findFirst({ where: { email: dto.email } });
-    if (existing) throw new ConflictException('Email already registered');
+    const phone = normalizePhone(dto.phone);
     if (dto.shopId) {
       const shop = await this.prisma.shop.findUnique({ where: { id: dto.shopId } });
       if (!shop) throw new BadRequestException('Shop not found');
     }
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        phone: `email-${dto.email}-${Date.now()}`,
-        passwordHash,
-        role: Role.STORE_ADMIN,
-        ...(dto.shopId && { shops: { connect: { id: dto.shopId } } }),
-      },
+    let user = await this.prisma.user.findUnique({
+      where: { phone },
+      include: { shops: { select: { id: true } } },
     });
-    const { passwordHash: _, ...result } = user;
+    if (user) {
+      const shopIds = user.shops.map((s) => s.id);
+      const alreadyHasShop = dto.shopId && shopIds.includes(dto.shopId);
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          role: Role.STORE_ADMIN,
+          ...(dto.shopId && !alreadyHasShop && { shops: { connect: { id: dto.shopId } } }),
+        },
+      });
+      user = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        include: { shops: { select: { id: true, name: true } } },
+      })!;
+    } else {
+      user = await this.prisma.user.create({
+        data: {
+          phone,
+          role: Role.STORE_ADMIN,
+          ...(dto.shopId && { shops: { connect: { id: dto.shopId } } }),
+        },
+        include: { shops: { select: { id: true, name: true } } },
+      });
+    }
+    const { passwordHash: _, ...result } = user as typeof user & { passwordHash?: string | null };
     return result;
   }
 

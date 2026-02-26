@@ -1,5 +1,4 @@
 export class CreateStoreOwnerDto {
-  email: string;
-  password: string;
+  phone: string;
   shopId?: string;
 }
