@@ -164,19 +164,31 @@ export class AuthService {
     if (currentUser.role === 'STORE_ADMIN' && !currentUser.shopIds?.includes(branch.shop.id)) {
       throw new UnauthorizedException('You can only add staff to branches of your shop(s)');
     }
-    const existing = await this.prisma.user.findFirst({ where: { email: dto.email } });
-    if (existing) throw new ConflictException('Email already registered');
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        phone: `email-${dto.email}-${Date.now()}`,
-        passwordHash,
-        role: Role.BRANCH_STAFF,
-        branchId: dto.branchId,
-      },
+    const phone = normalizePhone(dto.phone);
+    let user = await this.prisma.user.findUnique({
+      where: { phone },
+      include: { branch: { select: { id: true } } },
     });
-    const { passwordHash: _, ...result } = user;
+    if (user) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { role: Role.BRANCH_STAFF, branchId: dto.branchId },
+      });
+      user = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        include: { branch: { select: { id: true, name: true, location: true, shop: { select: { name: true } } } } },
+      })!;
+    } else {
+      user = await this.prisma.user.create({
+        data: {
+          phone,
+          role: Role.BRANCH_STAFF,
+          branchId: dto.branchId,
+        },
+        include: { branch: { select: { id: true, name: true, location: true, shop: { select: { name: true } } } } },
+      });
+    }
+    const { passwordHash: _, ...result } = user as typeof user & { passwordHash?: string | null };
     return result;
   }
 
@@ -189,6 +201,7 @@ export class AuthService {
       where,
       select: {
         id: true,
+        phone: true,
         email: true,
         createdAt: true,
         branch: { select: { id: true, name: true, location: true, shop: { select: { name: true } } } },
@@ -275,11 +288,11 @@ export class AuthService {
     };
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_ACCESS_EXPIRES_IN'),
+      expiresIn: (this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '1h') as any,
     });
     const refreshToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN'),
+      expiresIn: (this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '7d') as any,
     });
     const crypto = await import('crypto');
     const refreshHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
