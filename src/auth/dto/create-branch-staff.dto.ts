@@ -1,5 +1,4 @@
 export class CreateBranchStaffDto {
-  email: string;
-  password: string;
+  phone: string;
   branchId: string;
 }
