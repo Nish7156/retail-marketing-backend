@@ -307,6 +307,9 @@ export class AuthService {
     });
     const cookieAccessMaxAge = parseInt(this.configService.get<string>('COOKIE_ACCESS_MAX_AGE') ?? '900', 10);
     const cookieRefreshMaxAge = parseInt(this.configService.get<string>('COOKIE_REFRESH_MAX_AGE') ?? '604800', 10);
+    const isProd = this.configService.get<string>('NODE_ENV') === 'production';
+    const sameSite = isProd ? ('none' as const) : ('lax' as const);
+    const secure = isProd;
     return {
       accessToken,
       refreshToken,
@@ -316,11 +319,15 @@ export class AuthService {
           name: ACCESS_TOKEN_COOKIE,
           value: accessToken,
           maxAge: cookieAccessMaxAge,
+          sameSite,
+          secure,
         },
         refresh: {
           name: REFRESH_TOKEN_COOKIE,
           value: refreshToken,
           maxAge: cookieRefreshMaxAge,
+          sameSite,
+          secure,
         },
       },
     };

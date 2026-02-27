@@ -16,19 +16,18 @@ import { Roles } from './decorators/roles.decorator';
 import { RolesGuard } from './guards/roles.guard';
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from './constants';
 
-function setAuthCookies(res: Response, cookieOptions: { access: { name: string; value: string; maxAge: number }; refresh: { name: string; value: string; maxAge: number } }) {
-  const isProd = process.env.NODE_ENV === 'production';
+function setAuthCookies(res: Response, cookieOptions: { access: { name: string; value: string; maxAge: number; sameSite: 'lax' | 'none'; secure: boolean }; refresh: { name: string; value: string; maxAge: number; sameSite: 'lax' | 'none'; secure: boolean } }) {
   res.cookie(cookieOptions.access.name, cookieOptions.access.value, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: 'lax',
+    secure: cookieOptions.access.secure,
+    sameSite: cookieOptions.access.sameSite,
     maxAge: cookieOptions.access.maxAge * 1000,
     path: '/',
   });
   res.cookie(cookieOptions.refresh.name, cookieOptions.refresh.value, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: 'lax',
+    secure: cookieOptions.refresh.secure,
+    sameSite: cookieOptions.refresh.sameSite,
     maxAge: cookieOptions.refresh.maxAge * 1000,
     path: '/',
   });
@@ -79,8 +78,10 @@ export class AuthController {
   @Post('logout')
   async logout(@CurrentUser('sub') userId: string, @Res({ passthrough: true }) res: Response) {
     await this.authService.logout(userId);
-    res.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/' });
-    res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/' });
+    const isProd = process.env.NODE_ENV === 'production';
+    const clearOpts = { path: '/', secure: isProd, sameSite: isProd ? ('none' as const) : ('lax' as const) };
+    res.clearCookie(ACCESS_TOKEN_COOKIE, clearOpts);
+    res.clearCookie(REFRESH_TOKEN_COOKIE, clearOpts);
     return { ok: true };
   }
 

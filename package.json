@@ -21,7 +21,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts",
+    "prisma:seed": "ts-node -P prisma/tsconfig.json prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "db:clear-and-seed": "prisma migrate reset --force",
     "docker:up": "docker compose up -d",
@@ -89,6 +89,6 @@
     "testEnvironment": "node"
   },
   "prisma": {
-    "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts"
+    "seed": "ts-node -P prisma/tsconfig.json prisma/seed.ts"
   }
 }
