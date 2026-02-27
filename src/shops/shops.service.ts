@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { validateAndNormalizePhone } from '../common/phone.util';
 
 @Injectable()
 export class ShopsService {
@@ -38,7 +39,8 @@ export class ShopsService {
   async addOwnerByPhone(shopId: string, phone: string) {
     const shop = await this.prisma.shop.findUnique({ where: { id: shopId } });
     if (!shop) throw new BadRequestException('Shop not found');
-    const user = await this.prisma.user.findUnique({ where: { phone } });
+    const normalizedPhone = validateAndNormalizePhone(phone);
+    const user = await this.prisma.user.findUnique({ where: { phone: normalizedPhone } });
     if (!user) throw new BadRequestException('User not found');
     await this.prisma.shop.update({
       where: { id: shopId },

@@ -12,16 +12,10 @@ import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Role } from '@prisma/client';
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from './constants';
 import { JwtPayload } from './decorators/current-user.decorator';
+import { validateAndNormalizePhone } from '../common/phone.util';
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_LENGTH = 6;
-
-function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length === 10) return `+91${digits}`;
-  if (digits.length === 12 && digits.startsWith('91')) return `+${digits}`;
-  return phone.startsWith('+') ? phone : `+${phone}`;
-}
 
 @Injectable()
 export class AuthService {
@@ -32,7 +26,7 @@ export class AuthService {
   ) {}
 
   async sendOtp(dto: SendOtpDto) {
-    const phone = normalizePhone(dto.phone);
+    const phone = validateAndNormalizePhone(dto.phone);
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
     await this.prisma.otpCode.deleteMany({ where: { phone } });
@@ -44,7 +38,7 @@ export class AuthService {
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
-    const phone = normalizePhone(dto.phone);
+    const phone = validateAndNormalizePhone(dto.phone);
     const otp = await this.prisma.otpCode.findFirst({
       where: { phone, code: dto.code },
       orderBy: { createdAt: 'desc' },
@@ -115,7 +109,7 @@ export class AuthService {
   }
 
   async createStoreOwner(dto: CreateStoreOwnerDto) {
-    const phone = normalizePhone(dto.phone);
+    const phone = validateAndNormalizePhone(dto.phone);
     if (dto.shopId) {
       const shop = await this.prisma.shop.findUnique({ where: { id: dto.shopId } });
       if (!shop) throw new BadRequestException('Shop not found');
@@ -164,7 +158,7 @@ export class AuthService {
     if (currentUser.role === 'STORE_ADMIN' && !currentUser.shopIds?.includes(branch.shop.id)) {
       throw new UnauthorizedException('You can only add staff to branches of your shop(s)');
     }
-    const phone = normalizePhone(dto.phone);
+    const phone = validateAndNormalizePhone(dto.phone);
     let user = await this.prisma.user.findUnique({
       where: { phone },
       include: { branch: { select: { id: true } } },

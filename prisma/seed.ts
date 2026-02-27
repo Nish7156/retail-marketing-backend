@@ -1,15 +1,17 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { validateAndNormalizePhone } from '../src/common/phone.util';
 
 const prisma = new PrismaClient();
 
 async function main() {
+  const superAdminPhone = validateAndNormalizePhone('9999999999');
   const hash = await bcrypt.hash('superadmin123', 10);
   await prisma.user.upsert({
-    where: { phone: '+919999999999' },
+    where: { phone: superAdminPhone },
     update: {},
     create: {
-      phone: '+919999999999',
+      phone: superAdminPhone,
       email: 'superadmin@retail.com',
       passwordHash: hash,
       role: 'SUPERADMIN',
@@ -47,33 +49,36 @@ async function main() {
     },
   });
 
+  const customerPhone = validateAndNormalizePhone('9876543210');
   await prisma.customer.upsert({
     where: { id: 'seed-customer-1' },
     update: {},
     create: {
       id: 'seed-customer-1',
       name: 'John Doe',
-      phone: '+917777777777',
+      phone: customerPhone,
       email: 'john@example.com',
       branchId: branch.id,
     },
   });
 
+  const storeAdminPhone = validateAndNormalizePhone('8888888888');
   await prisma.user.upsert({
-    where: { phone: '+918888888888' },
+    where: { phone: storeAdminPhone },
     update: {},
     create: {
-      phone: '+918888888888',
+      phone: storeAdminPhone,
       role: 'STORE_ADMIN',
       shops: { connect: { id: shop.id } },
     },
   });
 
+  const branchStaffPhone = validateAndNormalizePhone('7766655555');
   await prisma.user.upsert({
-    where: { phone: '+917766665555' },
+    where: { phone: branchStaffPhone },
     update: {},
     create: {
-      phone: '+917766665555',
+      phone: branchStaffPhone,
       role: 'BRANCH_STAFF',
       branchId: branch.id,
     },

@@ -1,6 +1,7 @@
 import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { JwtPayload } from '../auth/decorators/current-user.decorator';
+import { validateAndNormalizePhone } from '../common/phone.util';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 
 @Injectable()
@@ -25,11 +26,12 @@ export class CustomersService {
     if (!can) throw new ForbiddenException('You cannot add customers to this branch');
     const branch = await this.prisma.branch.findUnique({ where: { id: dto.branchId } });
     if (!branch) throw new BadRequestException('Branch not found');
+    const phone = validateAndNormalizePhone(dto.phone);
     return this.prisma.customer.create({
       data: {
         branchId: dto.branchId,
         name: dto.name,
-        phone: dto.phone,
+        phone,
         email: dto.email,
       },
       include: { branch: { select: { id: true, name: true, location: true } } },
